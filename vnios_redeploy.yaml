@@ -5,6 +5,8 @@
 
   vars:
     ova_path: ~/nios-8.6.2-49947-c076923293a0-2022-06-10-09-59-58-ddi.ova
+    # If you are using a different version of the OVA file then the example provided, you may need to change the WAPI version.
+    # Consult the NIOS user-guide for the WAPI version compatible with your OVA version.
     wapi_version: wapi/v2.12
     vnios:
       fqdn: vnios-01.home.lan
