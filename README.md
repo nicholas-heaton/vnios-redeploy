@@ -18,7 +18,8 @@ set of scripts and ansible playbook to automate infoblox vnios redeployment (int
 9. crontab -e
 
 10. Add the following line to the crontab to run once a month at 3:30am
-30 3 1 * * /home/administrator/redeploy.sh
+
+```30 3 1 * * /home/administrator/redeploy.sh```
 
 ### Note:
 If you want to test the script manually, run /home/administrator/redeploy.sh
