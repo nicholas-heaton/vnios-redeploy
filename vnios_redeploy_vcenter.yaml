@@ -1,0 +1,189 @@
+---
+- name: vNIOS Re-deploy for vCenter
+  hosts: localhost
+  gather_facts: false
+
+  vars:
+    ova_path: ~/nios-8.6.2-49947-c076923293a0-2022-06-10-09-59-58-ddi.ova
+    # If you are using a different version of the OVA file then the example provided, you may need to change the WAPI version.
+    # Consult the NIOS user-guide for the WAPI version compatible with your OVA version.
+    wapi_version: wapi/v2.12
+    vnios:
+      fqdn: vnios-01.home.lan
+      license: nios IB-V815 enterprise dns dhcp cloud
+      password: ASecurePassword123!
+      hardware type: 
+      network:
+        ip: "192.168.1.9"
+        mask: "255.255.255.0"
+        gateway: "192.168.1.1"
+      vm_properties:
+        vm_name: vnios-01
+        datastore: clt-ds-cluster
+        cluster: Home
+        data_center:  Charlotte
+        vm_network: Untagged
+    vsphere:
+      fqdn: "vmvc-01.home.lan"
+      username: administrator@vsphere.local
+      password: ASecurePassword123!
+    ansible_python_interpreter: ~/venv/bin/python3
+
+  tasks:
+    - name: Create Grid Backup
+      uri:
+        url: "https://{{ vnios.network.ip }}/{{ wapi_version }}/fileop?_function=getgriddata"
+        method: POST
+        user: admin
+        password: "{{ vnios.password }}"
+        headers:
+          Content-Type: application/json
+        body:
+          type: BACKUP
+        body_format: json
+        validate_certs: no
+        return_content: yes
+      register: backup
+ 
+    - name: Download Backup File
+      ansible.builtin.get_url:
+        headers:
+          Content-Type: application/force-download
+        url: "{{ backup.json.url }}"
+        url_username: admin
+        url_password: "{{ vnios.password }}"
+        dest: ./
+        force_basic_auth: yes
+        validate_certs: no
+
+    - name: Get VM UUID
+      community.vmware.vmware_guest_info:
+        hostname: "{{ vsphere.fqdn }}"
+        username: "{{ vsphere.username }}"
+        password: "{{ vsphere.password }}"
+        datacenter: "{{ vnios.vm_properties.data_center | default('') }}"
+        name: "{{ vnios.vm_properties.vm_name }}"
+        schema: "vsphere"
+        properties: "config.uuid"
+        validate_certs: no
+      delegate_to: localhost
+      register: vm_info
+
+    - name: Rename Expiring Virtual Machine (vm_name-old)
+      community.vmware.vmware_guest:
+        hostname: "{{ vsphere.fqdn }}"
+        username: "{{ vsphere.username }}"
+        password: "{{ vsphere.password }}"
+        uuid: "{{ vm_info.instance.config.uuid }}"
+        name: "{{ vnios.vm_properties.vm_name }}-old"
+        state: present
+        validate_certs: no
+      delegate_to: localhost
+
+    - name: Power Off the vm_name-old VM
+      community.vmware.vmware_guest:
+        hostname: "{{ vsphere.fqdn }}"
+        username: "{{ vsphere.username }}"
+        password: "{{ vsphere.password }}"
+        uuid: "{{ vm_info.instance.config.uuid }}"
+        state: poweredoff
+        validate_certs: no
+
+    - name: Deploy vNIOS Appliance
+      community.vmware.vmware_deploy_ovf:
+        hostname: "{{ vsphere.fqdn }}"
+        username: "{{ vsphere.username }}"
+        password:  "{{ vsphere.password }}"
+        datacenter: "{{ vnios.vm_properties.data_center | default(omit) }}"
+        cluster: "{{ vnios.vm_properties.cluster | default(omit) }}"
+        datastore: "{{ vnios.vm_properties.datastore }}"
+        name:  "{{ vnios.vm_properties.vm_name }}"
+        networks: "{u'VM Network':u'{{ vnios.vm_properties.vm_network }}'}"
+        disk_provisioning: thin
+        validate_certs: no
+        power_on: yes
+        ovf: "{{ ova_path }}"
+        inject_ovf_env: yes
+        properties:
+          temp_license: "{{ vnios.license }}"
+          lan1-v4_addr: "{{ vnios.network.ip }}"
+          lan1-v4_netmask: "{{ vnios.network.mask }}"
+          lan1-v4_gw: "{{ vnios.network.gateway }}"
+          default_admin_password: "{{ vnios.password }}"
+          remote_console_enabled: true
+
+    - name: Wait for vNIOS to Boot
+      pause:
+        seconds: 60
+
+    - name: Wait until HTTP status is 200
+      uri:
+        url: 'https://{{ vnios.network.ip }}'
+        return_content: yes
+        validate_certs: no
+      until: uri_output.status == 200
+      retries: 24 # Retries for 24 * 10 seconds = 240 seconds = 4 minutes
+      delay: 10 # Every 10 seconds
+      register: uri_output
+
+    - name: Prep-Upload Backup File
+      uri:
+        url: "https://{{ vnios.network.ip }}/{{ wapi_version }}/fileop?_function=uploadinit"
+        method: POST
+        user: admin
+        password: "{{ vnios.password }}"
+        headers:
+          Content-Type: application/json
+        validate_certs: no
+        return_content: yes
+      register: restore
+
+    - name: Upload Backup File
+      ansible.builtin.shell:
+      # uri module doesn't support -F switch of curl.
+        cmd: 'curl -k -u admin:{{vnios.password}} "{{ restore.json.url }}" -F name=database.bak -F filedata=@database.bak'
+
+    - name: Restore From Backup File
+      uri:
+        url: "https://{{ vnios.network.ip }}/{{ wapi_version }}/fileop?_function=restoredatabase"
+        method: POST
+        user: admin
+        password: "{{ vnios.password }}"
+        headers:
+          Content-Type: application/json
+        validate_certs: no
+        body_format: json
+        body:
+          token: "{{ restore.json.token }}"
+          mode: NORMAL
+      register: response
+
+    - name: Wait for vNIOS to Reboot
+      pause:
+        seconds: 120
+
+    - name: Wait until HTTP status is 200
+      uri:
+        url: 'https://{{ vnios.network.ip }}'
+        return_content: yes
+        validate_certs: no
+        status_code:
+          - 200
+      until: uri_output.status == 200
+      retries: 24 # Retries for 24 * 10 seconds = 240 seconds = 4 minutes
+      delay: 10 # Every 10 seconds
+      register: uri_output
+
+    - name: Validate DNS Resolution of New Infoblox Appliance
+      ansible.builtin.assert:
+        that:
+          - vnios.network.ip == "{{ lookup('dig', '{{ vnios.fqdn }}', '@{{ vnios.network.ip }}') }}"
+
+    - name: Delete Old VM
+      community.vmware.vmware_guest:
+        hostname: "{{ vsphere.fqdn }}"
+        username: "{{ vsphere.username }}"
+        password: "{{ vsphere.password }}"
+        uuid: "{{ vm_info.instance.config.uuid }}"
+        state: absent
+        validate_certs: no
