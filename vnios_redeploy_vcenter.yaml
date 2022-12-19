@@ -10,7 +10,6 @@
     wapi_version: wapi/v2.12
     vnios:
       fqdn: vnios-01.home.lan
-      fqdn_ip: 192.168.1.10
       license: nios IB-V815 enterprise dns dhcp cloud
       password: ASecurePassword123!
       hardware type: 
@@ -25,7 +24,7 @@
         data_center:  Charlotte
         vm_network: Untagged
     vsphere:
-      fqdn: "vmvc-01.home.lan"
+      fqdn: 192.168.1.10
       username: administrator@vsphere.local
       password: ASecurePassword123!
     ansible_python_interpreter: ~/venv/bin/python3
@@ -92,7 +91,7 @@
 
     - name: Deploy vNIOS Appliance
       community.vmware.vmware_deploy_ovf:
-        hostname: "{{ vsphere.fqdn_ip }}"
+        hostname: "{{ vsphere.fqdn }}"
         username: "{{ vsphere.username }}"
         password:  "{{ vsphere.password }}"
         datacenter: "{{ vnios.vm_properties.data_center | default(omit) }}"
