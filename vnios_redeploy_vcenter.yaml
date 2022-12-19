@@ -10,6 +10,7 @@
     wapi_version: wapi/v2.12
     vnios:
       fqdn: vnios-01.home.lan
+      fqdn_ip: 192.168.1.10
       license: nios IB-V815 enterprise dns dhcp cloud
       password: ASecurePassword123!
       hardware type: 
@@ -91,7 +92,7 @@
 
     - name: Deploy vNIOS Appliance
       community.vmware.vmware_deploy_ovf:
-        hostname: "{{ vsphere.fqdn }}"
+        hostname: "{{ vsphere.fqdn_ip }}"
         username: "{{ vsphere.username }}"
         password:  "{{ vsphere.password }}"
         datacenter: "{{ vnios.vm_properties.data_center | default(omit) }}"
