@@ -22,7 +22,7 @@
         datastore: esxi-01-lds
         # cluster: # Uncomment to supply cluster, for vCenter only (not required for ESXi deployment)
         # data_center:  # Uncomment to supply data_center name, for vCenter only (not required for ESXi deployment)
-        vm_network: VM Network
+        vm_network: VM Network #Can only deploy to standard switch (non-VDS) when deploying straight to ESXi. Use vCenter playbook if host is configured with vDS.
     vsphere:
       fqdn: "192.168.1.11"
       username: root
