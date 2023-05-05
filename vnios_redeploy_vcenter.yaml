@@ -11,7 +11,7 @@
     vnios:
       fqdn: vnios-01.home.lan
       license: nios IB-V815 enterprise dns dhcp cloud
-      password: ASecurePassword123!
+      password: a_password
       hardware type: 
       network:
         ip: "192.168.1.9"
@@ -22,11 +22,11 @@
         datastore: clt-ds-cluster
         cluster: Home
         data_center:  Charlotte
-        vm_network: Untagged
+        vm_network: VL0-Untagged
     vsphere:
       fqdn: 192.168.1.10
       username: administrator@vsphere.local
-      password: ASecurePassword123!
+      password: a_password
     ansible_python_interpreter: ~/venv/bin/python3
 
   tasks:
@@ -80,15 +80,6 @@
         validate_certs: no
       delegate_to: localhost
 
-    - name: Power Off the vm_name-old VM
-      community.vmware.vmware_guest:
-        hostname: "{{ vsphere.fqdn }}"
-        username: "{{ vsphere.username }}"
-        password: "{{ vsphere.password }}"
-        uuid: "{{ vm_info.instance.config.uuid }}"
-        state: poweredoff
-        validate_certs: no
-
     - name: Deploy vNIOS Appliance
       community.vmware.vmware_deploy_ovf:
         hostname: "{{ vsphere.fqdn }}"
@@ -97,7 +88,7 @@
         datacenter: "{{ vnios.vm_properties.data_center | default(omit) }}"
         cluster: "{{ vnios.vm_properties.cluster | default(omit) }}"
         datastore: "{{ vnios.vm_properties.datastore }}"
-        name:  "{{ vnios.vm_properties.vm_name }}"
+        name:  "{{ vnios.vm_properties.vm_name }}-new"
         networks: "{u'VM Network':u'{{ vnios.vm_properties.vm_network }}'}"
         disk_provisioning: thin
         validate_certs: no
@@ -112,9 +103,42 @@
           default_admin_password: "{{ vnios.password }}"
           remote_console_enabled: true
 
+    - name: Power Off the vm_name-old VM
+      community.vmware.vmware_guest:
+        hostname: "{{ vsphere.fqdn }}"
+        username: "{{ vsphere.username }}"
+        password: "{{ vsphere.password }}"
+        uuid: "{{ vm_info.instance.config.uuid }}"
+        state: poweredoff
+        validate_certs: no
+
     - name: Wait for vNIOS to Boot
       pause:
         seconds: 60
+
+    - name: Get New VM UUID
+      community.vmware.vmware_guest_info:
+        hostname: "{{ vsphere.fqdn }}"
+        username: "{{ vsphere.username }}"
+        password: "{{ vsphere.password }}"
+        datacenter: "{{ vnios.vm_properties.data_center | default('') }}"
+        name: "{{ vnios.vm_properties.vm_name }}-new"
+        schema: "vsphere"
+        properties: "config.uuid"
+        validate_certs: no
+      delegate_to: localhost
+      register: vm_info_new
+
+    - name: Rename New Virtual Machine (vm_name)
+      community.vmware.vmware_guest:
+        hostname: "{{ vsphere.fqdn }}"
+        username: "{{ vsphere.username }}"
+        password: "{{ vsphere.password }}"
+        uuid: "{{ vm_info_new.instance.config.uuid }}"
+        name: "{{ vnios.vm_properties.vm_name }}"
+        state: present
+        validate_certs: no
+      delegate_to: localhost
 
     - name: Wait until HTTP status is 200
       uri:
@@ -122,7 +146,7 @@
         return_content: yes
         validate_certs: no
       until: uri_output.status == 200
-      retries: 24 # Retries for 24 * 10 seconds = 240 seconds = 4 minutes
+      retries: 60 # Retries for 60 * 10 seconds = 600 seconds = 10 minutes
       delay: 10 # Every 10 seconds
       register: uri_output
 
